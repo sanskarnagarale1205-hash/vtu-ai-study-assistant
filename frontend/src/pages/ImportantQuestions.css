@@ -1,0 +1,22 @@
+@import "./ToolsCommon.css";
+
+.questions-result h2,
+.analysis-card h2 {
+  margin-top: 0;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.result-header span {
+  background: #eef2ff;
+  color: #3730a3;
+  padding: 7px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 800;
+}
