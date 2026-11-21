@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# uploads and temp files
+backend/uploads/
+*.pdf
+
+# builds and logs
+dist/
+build/
+*.log
+npm-debug.log*
+
+# editor and system files
+.vscode/
+.DS_Store
+Thumbs.db

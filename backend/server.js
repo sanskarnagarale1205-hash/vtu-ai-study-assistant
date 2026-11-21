@@ -11,6 +11,8 @@ const pdfRoutes = require("./routes/pdfRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const previousPaperRoutes = require("./routes/previousPaperRoutes");
 const importantQuestionsRoutes = require("./routes/importantQuestionsRoutes");
+const quizResultRoutes = require("./routes/quizResultRoutes");
+const studyPlanRoutes = require("./routes/studyPlanRoutes");
 
 const app = express();
 
@@ -79,7 +81,8 @@ app.use(
   "/api/important-questions",
   importantQuestionsRoutes
 );
-
+app.use("/api/quiz-results", quizResultRoutes);
+app.use("/api/study-plans", studyPlanRoutes);
 // IMPORTANT: singular previous-paper
 app.use(
   "/api/previous-papers",

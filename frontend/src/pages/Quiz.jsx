@@ -1,615 +1,731 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
+import "./Quiz.css";
+
+const DIFFICULTIES = ["Easy", "Medium", "Hard", "Mixed"];
+const MODULES = [1, 2, 3, 4, 5].map((n) => `Module ${n}`);
+const SUBJECT_IDEAS = [
+  "DBMS",
+  "Operating System",
+  "Computer Networks",
+  "Data Structures",
+  "DAA",
+  "Machine Learning",
+];
+const LETTERS = ["A", "B", "C", "D"];
+
+const formatTime = (seconds) =>
+  `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(
+    seconds % 60
+  ).padStart(2, "0")}`;
 
 function Quiz() {
   const navigate = useNavigate();
 
+  // ---------- settings ----------
   const [subject, setSubject] = useState("DBMS");
   const [module, setModule] = useState("Module 1");
+  const [count, setCount] = useState("10");
+  const [difficulty, setDifficulty] = useState("Mixed");
+  const [timerOn, setTimerOn] = useState(false);
+  const [minutes, setMinutes] = useState("15");
 
+  // ---------- quiz ----------
+  const [phase, setPhase] = useState("setup"); // setup | quiz | result
   const [quiz, setQuiz] = useState([]);
   const [answers, setAnswers] = useState({});
-  const [score, setScore] = useState(null);
+  const [flagged, setFlagged] = useState({});
+  const [current, setCurrent] = useState(0);
+  const [score, setScore] = useState(0);
+  const [activeMinutes, setActiveMinutes] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [timeUsed, setTimeUsed] = useState(0);
+
+  // ---------- ui ----------
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [showExplain, setShowExplain] = useState(true);
+  const [filter, setFilter] = useState("all");
 
-  const generateQuiz = async () => {
-    try {
-      setLoading(true);
-      setQuiz([]);
-      setAnswers({});
-      setScore(null);
+  const endAtRef = useRef(0);
+  const startedAtRef = useRef(0);
+  const finishRef = useRef(() => {});
 
-      const token = localStorage.getItem("token");
+  const answeredCount = Object.keys(answers).length;
 
-      if (!token) {
-        alert("Please login first");
-        navigate("/");
-        return;
-      }
+  // ---------- finish ----------
+  const finish = (automatic = false) => {
+    if (phase !== "quiz" || quiz.length === 0) return;
 
-      const response = await API.post(
-        "/ai/quiz",
-        {
-          subject,
-          module,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+    const total = quiz.filter((q, i) => answers[i] === q.answer).length;
+
+    setScore(total);
+    setTimeUsed(Math.round((Date.now() - startedAtRef.current) / 1000));
+        API.post("/quiz-results", {
+      subject: subject.trim(),
+      module,
+      difficulty,
+      totalQuestions: quiz.length,
+      score: total,
+      timeTaken: Math.round((Date.now() - startedAtRef.current) / 1000),
+    }).catch((err) => console.error("Could not save quiz result:", err));
+    setNotice(
+      automatic ? "Time is up! Your quiz was submitted automatically." : ""
+    );
+    setFilter("all");
+    setPhase("result");
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // always points at the latest finish()
+  useEffect(() => {
+    finishRef.current = finish;
+  });
+
+  // ---------- timer ----------
+  useEffect(() => {
+    if (phase !== "quiz" || !activeMinutes) return undefined;
+
+    const id = setInterval(() => {
+      const left = Math.max(
+        0,
+        Math.round((endAtRef.current - Date.now()) / 1000)
       );
 
-      if (response.data.success) {
-        setQuiz(response.data.quiz);
+      setTimeLeft(left);
+
+      if (left <= 0) {
+        clearInterval(id);
+        finishRef.current(true);
+      }
+    }, 500);
+
+    return () => clearInterval(id);
+  }, [phase, activeMinutes]);
+
+  // ---------- keyboard ----------
+  useEffect(() => {
+    if (phase !== "quiz") return undefined;
+
+    const onKey = (event) => {
+      const tag = event.target.tagName;
+
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (event.key === "ArrowRight") {
+        setCurrent((value) => Math.min(value + 1, quiz.length - 1));
+      } else if (event.key === "ArrowLeft") {
+        setCurrent((value) => Math.max(value - 1, 0));
+      } else if (/^[1-4]$/.test(event.key)) {
+        setAnswers((previous) => ({
+          ...previous,
+          [current]: Number(event.key) - 1,
+        }));
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, current, quiz.length]);
+
+  // ---------- start ----------
+  const startQuiz = (list, mins) => {
+    setQuiz(list);
+    setAnswers({});
+    setFlagged({});
+    setCurrent(0);
+    setScore(0);
+    setNotice("");
+    setError("");
+    setActiveMinutes(mins);
+
+    startedAtRef.current = Date.now();
+
+    if (mins) {
+      endAtRef.current = Date.now() + mins * 60000;
+      setTimeLeft(mins * 60);
+    } else {
+      setTimeLeft(0);
+    }
+
+    setPhase("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const generate = async () => {
+    setError("");
+
+    if (!subject.trim()) {
+      setError("Please enter a subject name.");
+      return;
+    }
+
+    const total = Number(count);
+
+    if (!Number.isInteger(total) || total < 1 || total > 50) {
+      setError("Please enter a whole number of questions between 1 and 50.");
+      return;
+    }
+
+    const mins = Number(minutes);
+
+    if (timerOn && (!Number.isInteger(mins) || mins < 1 || mins > 180)) {
+      setError("Choose a whole-number timer between 1 and 180 minutes.");
+      return;
+    }
+
+    if (!localStorage.getItem("token")) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await API.post("/ai/quiz", {
+        subject: subject.trim(),
+        module,
+        numberOfQuestions: total,
+        difficulty,
+        timerMinutes: timerOn ? mins : null,
+      });
+
+      const generated = response.data?.quiz;
+
+      if (
+        response.data?.success &&
+        Array.isArray(generated) &&
+        generated.length > 0
+      ) {
+        startQuiz(generated, timerOn ? mins : null);
       } else {
-        alert(
-          response.data.message || "Failed to generate quiz"
+        setError(
+          response.data?.message ||
+            "No questions were generated. Please try again."
         );
       }
-    } catch (error) {
-      console.error("Quiz Error:", error);
+    } catch (err) {
+      console.error("Quiz generation error:", err);
 
-      alert(
-        error.response?.data?.message ||
-          "Unable to generate quiz"
+      setError(
+        err.response?.data?.message ||
+          "Unable to generate the quiz. Check your backend and Gemini API."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  const selectAnswer = (questionIndex, optionIndex) => {
-    if (score !== null) return;
-
-    setAnswers((previous) => ({
-      ...previous,
-      [questionIndex]: optionIndex,
-    }));
+  // ---------- actions ----------
+  const selectAnswer = (optionIndex) => {
+    setAnswers((previous) => ({ ...previous, [current]: optionIndex }));
   };
 
-  const submitQuiz = () => {
-    if (quiz.length === 0) return;
+  const toggleFlag = () => {
+    setFlagged((previous) => ({ ...previous, [current]: !previous[current] }));
+  };
 
-    if (Object.keys(answers).length !== quiz.length) {
-      alert("Please answer all questions before submitting.");
+  const submit = () => {
+    const missing = quiz.length - answeredCount;
+
+    if (
+      missing > 0 &&
+      !window.confirm(`You have ${missing} unanswered question(s). Submit anyway?`)
+    ) {
       return;
     }
 
-    let totalScore = 0;
-
-    quiz.forEach((question, index) => {
-      if (answers[index] === question.answer) {
-        totalScore++;
-      }
-    });
-
-    setScore(totalScore);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    finish(false);
   };
 
-  const resetQuiz = () => {
+  const retakeAll = () => startQuiz(quiz, activeMinutes);
+
+  const retryWrong = () => {
+    const wrong = quiz.filter((q, i) => answers[i] !== q.answer);
+
+    if (wrong.length > 0) startQuiz(wrong, activeMinutes);
+  };
+
+  const newQuiz = () => {
+    setPhase("setup");
     setQuiz([]);
     setAnswers({});
-    setScore(null);
+    setError("");
+    setNotice("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // ---------- numbers ----------
+  const total = quiz.length;
+  const wrongCount = quiz.filter(
+    (q, i) => answers[i] !== undefined && answers[i] !== q.answer
+  ).length;
+  const skippedCount = total - answeredCount;
+  const percentage = total ? Math.round((score / total) * 100) : 0;
+
+  const grade =
+    percentage === 100
+      ? "Perfect score! Outstanding!"
+      : percentage >= 80
+      ? "Excellent work. Keep it up!"
+      : percentage >= 60
+      ? "Good job. A little more practice will help."
+      : percentage >= 40
+      ? "Fair attempt. Revise the weak topics."
+      : "Review the concepts and practise more.";
+
+  const reviewItems = quiz
+    .map((q, i) => {
+      const status =
+        answers[i] === undefined
+          ? "skipped"
+          : answers[i] === q.answer
+          ? "correct"
+          : "wrong";
+
+      return { q, i, status };
+    })
+    .filter((item) => filter === "all" || item.status === filter);
+
+  const question = quiz[current];
+
+  // =====================================================
+  // UI
+  // =====================================================
+
   return (
-    <div style={styles.page}>
+    <div className="qz-page">
+      {/* ================= SETUP ================= */}
+      {phase === "setup" && (
+        <>
+          <section className="qz-hero">
+            <div className="qz-hero-icon">📝</div>
 
-      {/* HEADER */}
-      <div style={styles.header}>
-        <h1 style={styles.mainTitle}>
-          📝 Generate Quiz
-        </h1>
+            <div>
+              <p className="qz-eyebrow">PRACTICE MODE</p>
+              <h1>Generate Quiz</h1>
+              <p className="qz-sub">
+                Practice any subject with AI-generated questions and test your
+                exam preparation.
+              </p>
+            </div>
+          </section>
 
-        <button
-          style={styles.backButton}
-          onClick={() => navigate("/dashboard")}
-        >
-          ← Dashboard
-        </button>
-      </div>
+          <section className="qz-card">
+            <label className="qz-label" htmlFor="qz-subject">
+              Subject name
+            </label>
 
-      {/* QUIZ SETTINGS */}
-      <div style={styles.card}>
+            <input
+              id="qz-subject"
+              className="qz-input"
+              type="text"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder="e.g. DBMS, AI, Machine Learning"
+              disabled={loading}
+            />
 
-        <h2 style={styles.heading}>
-          🎯 Create VTU Quiz
-        </h2>
+            <div className="qz-chips">
+              {SUBJECT_IDEAS.map((name) => (
+                <button
+                  type="button"
+                  key={name}
+                  className="qz-chip"
+                  onClick={() => setSubject(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
 
-        <p style={styles.description}>
-          Select a subject and module. AI will create
-          10 multiple-choice questions.
-        </p>
+            <label className="qz-label">Module</label>
 
-        <label style={styles.label}>
-          Select Subject
-        </label>
+            <div className="qz-seg">
+              {MODULES.map((name) => (
+                <button
+                  type="button"
+                  key={name}
+                  className={module === name ? "qz-on" : ""}
+                  onClick={() => setModule(name)}
+                  disabled={loading}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
 
-        <select
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          style={styles.input}
-        >
-          <option value="DBMS">DBMS</option>
-          <option value="Design and Analysis of Algorithms">
-            Design and Analysis of Algorithms
-          </option>
-          <option value="Operating Systems">
-            Operating Systems
-          </option>
-          <option value="Computer Networks">
-            Computer Networks
-          </option>
-          <option value="Data Structures">
-            Data Structures
-          </option>
-          <option value="Java">Java</option>
-          <option value="Python">Python</option>
-        </select>
+            <label className="qz-label">Difficulty</label>
 
-        <label style={styles.label}>
-          Select Module
-        </label>
+            <div className="qz-seg">
+              {DIFFICULTIES.map((name) => (
+                <button
+                  type="button"
+                  key={name}
+                  className={difficulty === name ? "qz-on" : ""}
+                  onClick={() => setDifficulty(name)}
+                  disabled={loading}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
 
-        <select
-          value={module}
-          onChange={(e) => setModule(e.target.value)}
-          style={styles.input}
-        >
-          <option value="Module 1">Module 1</option>
-          <option value="Module 2">Module 2</option>
-          <option value="Module 3">Module 3</option>
-          <option value="Module 4">Module 4</option>
-          <option value="Module 5">Module 5</option>
-        </select>
+            <label className="qz-label" htmlFor="qz-count">
+              Number of questions (1 to 50)
+            </label>
 
-        <button
-          style={{
-            ...styles.generateButton,
-            opacity: loading ? 0.7 : 1,
-          }}
-          onClick={generateQuiz}
-          disabled={loading}
-        >
-          {loading
-            ? "🤖 Generating Quiz..."
-            : "🚀 Generate Quiz"}
-        </button>
-      </div>
+            <div className="qz-count-row">
+              <input
+                id="qz-count"
+                className="qz-input qz-count"
+                type="number"
+                min="1"
+                max="50"
+                value={count}
+                onChange={(event) => setCount(event.target.value)}
+                disabled={loading}
+              />
 
-      {/* SCORE */}
-      {score !== null && (
-        <div style={styles.scoreCard}>
+              {[5, 10, 20, 30].map((n) => (
+                <button
+                  type="button"
+                  key={n}
+                  className="qz-chip"
+                  onClick={() => setCount(String(n))}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
 
-          <div style={styles.scoreIcon}>
-            {score >= 7 ? "🏆" : score >= 5 ? "👏" : "📚"}
-          </div>
+            <div className="qz-timer-box">
+              <label className="qz-switch">
+                <input
+                  type="checkbox"
+                  checked={timerOn}
+                  onChange={(event) => setTimerOn(event.target.checked)}
+                  disabled={loading}
+                />
+                <span>⏱️ Enable quiz timer</span>
+              </label>
 
-          <h1 style={styles.scoreTitle}>
-            Quiz Completed!
-          </h1>
+              {timerOn && (
+                <div className="qz-minutes">
+                  <input
+                    className="qz-input"
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={minutes}
+                    onChange={(event) => setMinutes(event.target.value)}
+                  />
+                  <span>minutes (auto-submits when time is up)</span>
+                </div>
+              )}
+            </div>
 
-          <div style={styles.scoreNumber}>
-            {score} / {quiz.length}
-          </div>
+            {error && <div className="qz-error">❌ {error}</div>}
 
-          <p style={styles.scoreMessage}>
-            {score === 10
-              ? "Excellent! Perfect score!"
-              : score >= 7
-              ? "Very good! Keep it up!"
-              : score >= 5
-              ? "Good job! Keep practicing."
-              : "Keep studying and try again!"}
-          </p>
+            <button
+              type="button"
+              className="qz-primary"
+              onClick={generate}
+              disabled={loading}
+            >
+              {loading ? "⏳ Generating your quiz..." : "🚀 Generate Quiz"}
+            </button>
 
-          <button
-            style={styles.retryButton}
-            onClick={resetQuiz}
-          >
-            🔄 New Quiz
-          </button>
-        </div>
+            {loading && (
+              <div className="qz-loading">
+                <div className="qz-spinner" />
+                <p>The AI is writing your questions. This can take a moment.</p>
+              </div>
+            )}
+          </section>
+        </>
       )}
 
-      {/* QUIZ QUESTIONS */}
-      {quiz.length > 0 && (
-        <div style={styles.quizContainer}>
+      {/* ================= QUIZ ================= */}
+      {phase === "quiz" && question && (
+        <>
+          <div className="qz-top">
+            <div className="qz-top-info">
+              <strong>{subject}</strong>
+              <span>
+                {module} · {difficulty}
+              </span>
+            </div>
 
-          <div style={styles.quizHeader}>
-            <h2 style={styles.quizTitle}>
-              📚 {subject}
-            </h2>
-
-            <p style={styles.moduleText}>
-              {module} • {quiz.length} Questions
-            </p>
-          </div>
-
-          {quiz.map((item, index) => (
-            <div
-              key={index}
-              style={styles.questionCard}
-            >
-
-              {/* QUESTION */}
-              <h3 style={styles.question}>
-                <span style={styles.questionNumber}>
-                  {index + 1}
-                </span>
-
-                {item.question}
-              </h3>
-
-              {/* OPTIONS */}
-              <div style={styles.optionsContainer}>
-
-                {item.options.map(
-                  (option, optionIndex) => {
-
-                    const selected =
-                      answers[index] === optionIndex;
-
-                    const correct =
-                      score !== null &&
-                      item.answer === optionIndex;
-
-                    const wrong =
-                      score !== null &&
-                      selected &&
-                      item.answer !== optionIndex;
-
-                    let optionStyle = {
-                      ...styles.option,
-                    };
-
-                    if (selected) {
-                      optionStyle = {
-                        ...optionStyle,
-                        backgroundColor: "#dbeafe",
-                        borderColor: "#2563eb",
-                        color: "#111827",
-                        fontWeight: "bold",
-                      };
-                    }
-
-                    if (correct) {
-                      optionStyle = {
-                        ...optionStyle,
-                        backgroundColor: "#dcfce7",
-                        borderColor: "#16a34a",
-                        color: "#14532d",
-                        fontWeight: "bold",
-                      };
-                    }
-
-                    if (wrong) {
-                      optionStyle = {
-                        ...optionStyle,
-                        backgroundColor: "#fee2e2",
-                        borderColor: "#dc2626",
-                        color: "#7f1d1d",
-                        fontWeight: "bold",
-                      };
-                    }
-
-                    return (
-                      <button
-                        key={optionIndex}
-                        style={optionStyle}
-                        onClick={() =>
-                          selectAnswer(
-                            index,
-                            optionIndex
-                          )
-                        }
-                        disabled={score !== null}
-                      >
-                        <span style={styles.optionLetter}>
-                          {String.fromCharCode(
-                            65 + optionIndex
-                          )}
-                        </span>
-
-                        <span style={styles.optionText}>
-                          {option}
-                        </span>
-
-                        {correct && (
-                          <span style={styles.resultIcon}>
-                            ✓
-                          </span>
-                        )}
-
-                        {wrong && (
-                          <span style={styles.resultIcon}>
-                            ✕
-                          </span>
-                        )}
-                      </button>
-                    );
-                  }
-                )}
-
+            <div className="qz-top-progress">
+              <div className="qz-bar">
+                <div style={{ width: `${(answeredCount / total) * 100}%` }} />
               </div>
 
+              <small>
+                {answeredCount} of {total} answered
+              </small>
             </div>
-          ))}
 
-          {/* SUBMIT */}
-          {score === null && (
-            <button
-              style={styles.submitButton}
-              onClick={submitQuiz}
-            >
-              ✅ Submit Quiz
-            </button>
-          )}
+            {activeMinutes ? (
+              <div className={`qz-timer ${timeLeft <= 60 ? "qz-timer-warn" : ""}`}>
+                ⏱ {formatTime(timeLeft)}
+              </div>
+            ) : (
+              <div className="qz-timer qz-timer-off">No timer</div>
+            )}
+          </div>
 
-        </div>
+          <div className="qz-layout">
+            <section className="qz-card qz-question">
+              <div className="qz-q-head">
+                <span className="qz-q-count">
+                  Question {current + 1} of {total}
+                </span>
+
+                <button
+                  type="button"
+                  className={`qz-flag ${flagged[current] ? "qz-flag-on" : ""}`}
+                  onClick={toggleFlag}
+                >
+                  {flagged[current] ? "🚩 Flagged" : "⚑ Flag for review"}
+                </button>
+              </div>
+
+              <h2 className="qz-q-text">{question.question}</h2>
+
+              <div className="qz-options">
+                {question.options.map((option, index) => (
+                  <button
+                    type="button"
+                    key={index}
+                    className={`qz-option ${
+                      answers[current] === index ? "qz-option-on" : ""
+                    }`}
+                    onClick={() => selectAnswer(index)}
+                  >
+                    <span className="qz-letter">{LETTERS[index]}</span>
+                    <span className="qz-option-text">{option}</span>
+                  </button>
+                ))}
+              </div>
+
+              <p className="qz-hint">
+                Tip: press 1–4 to choose an answer and ← → to move.
+              </p>
+
+              <div className="qz-nav">
+                <button
+                  type="button"
+                  className="qz-secondary"
+                  onClick={() => setCurrent(current - 1)}
+                  disabled={current === 0}
+                >
+                  ← Previous
+                </button>
+
+                {current < total - 1 ? (
+                  <button
+                    type="button"
+                    className="qz-primary qz-next"
+                    onClick={() => setCurrent(current + 1)}
+                  >
+                    Next →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="qz-primary qz-next"
+                    onClick={submit}
+                  >
+                    ✅ Submit Quiz
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <aside className="qz-card qz-palette">
+              <h3>Question map</h3>
+
+              <div className="qz-grid">
+                {quiz.map((item, index) => (
+                  <button
+                    type="button"
+                    key={index}
+                    className={[
+                      "qz-dot",
+                      answers[index] !== undefined ? "qz-dot-done" : "",
+                      flagged[index] ? "qz-dot-flag" : "",
+                      index === current ? "qz-dot-now" : "",
+                    ].join(" ")}
+                    onClick={() => setCurrent(index)}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+
+              <div className="qz-legend">
+                <span><i className="qz-l-done" /> Answered</span>
+                <span><i className="qz-l-flag" /> Flagged</span>
+                <span><i className="qz-l-now" /> Current</span>
+              </div>
+
+              <button type="button" className="qz-primary" onClick={submit}>
+                ✅ Submit Quiz
+              </button>
+            </aside>
+          </div>
+        </>
       )}
 
+      {/* ================= RESULT ================= */}
+      {phase === "result" && (
+        <>
+          <section className="qz-card qz-score">
+            {notice && <div className="qz-notice">{notice}</div>}
+
+            <div className="qz-ring" style={{ "--pct": percentage }}>
+              <div className="qz-ring-in">
+                <strong>{percentage}%</strong>
+                <span>
+                  {score}/{total}
+                </span>
+              </div>
+            </div>
+
+            <h2>
+              {percentage >= 80 ? "🏆" : percentage >= 50 ? "👏" : "📚"} {grade}
+            </h2>
+
+            <div className="qz-stats">
+              <div className="qz-stat-good"><strong>{score}</strong><span>Correct</span></div>
+              <div className="qz-stat-bad"><strong>{wrongCount}</strong><span>Wrong</span></div>
+              <div className="qz-stat-skip"><strong>{skippedCount}</strong><span>Skipped</span></div>
+              <div><strong>{formatTime(timeUsed)}</strong><span>Time taken</span></div>
+            </div>
+
+            <div className="qz-actions">
+              <button type="button" className="qz-primary" onClick={retakeAll}>
+                🔄 Retake Quiz
+              </button>
+
+              <button
+                type="button"
+                className="qz-secondary"
+                onClick={retryWrong}
+                disabled={score === total}
+              >
+                🎯 Practice wrong answers
+              </button>
+
+              <button type="button" className="qz-secondary" onClick={newQuiz}>
+                ➕ New Quiz
+              </button>
+
+              <button
+                type="button"
+                className="qz-secondary"
+                onClick={() => navigate("/dashboard")}
+              >
+                🏠 Dashboard
+              </button>
+            </div>
+          </section>
+
+          <section className="qz-card">
+            <div className="qz-review-head">
+              <h2>Review answers</h2>
+
+              <div className="qz-seg qz-seg-small">
+                {[
+                  ["all", "All"],
+                  ["wrong", "Wrong"],
+                  ["skipped", "Skipped"],
+                  ["correct", "Correct"],
+                ].map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={filter === value ? "qz-on" : ""}
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="qz-switch">
+              <input
+                type="checkbox"
+                checked={showExplain}
+                onChange={(event) => setShowExplain(event.target.checked)}
+              />
+              <span>Show correct answers and explanations</span>
+            </label>
+
+            {reviewItems.length === 0 && (
+              <p className="qz-empty">Nothing to show in this filter.</p>
+            )}
+
+            {reviewItems.map(({ q, i, status }) => (
+              <div className={`qz-review qz-review-${status}`} key={i}>
+                <div className="qz-review-top">
+                  <span className="qz-q-count">Question {i + 1}</span>
+
+                  <span className={`qz-tag qz-tag-${status}`}>
+                    {status === "correct"
+                      ? "✓ Correct"
+                      : status === "wrong"
+                      ? "✕ Wrong"
+                      : "– Skipped"}
+                  </span>
+                </div>
+
+                <h3>{q.question}</h3>
+
+                <div className="qz-options">
+                  {q.options.map((option, index) => {
+                    const isCorrect = showExplain && index === q.answer;
+                    const isWrongPick = answers[i] === index && index !== q.answer;
+                    const isPick = answers[i] === index;
+
+                    return (
+                      <div
+                        key={index}
+                        className={[
+                          "qz-option qz-option-static",
+                          isCorrect ? "qz-option-correct" : "",
+                          isWrongPick ? "qz-option-wrong" : "",
+                          isPick && !isWrongPick && !isCorrect ? "qz-option-on" : "",
+                        ].join(" ")}
+                      >
+                        <span className="qz-letter">{LETTERS[index]}</span>
+                        <span className="qz-option-text">{option}</span>
+                        {isPick && <small>Your answer</small>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {showExplain && q.explanation && (
+                  <div className="qz-explain">
+                    <strong>💡 Explanation</strong>
+                    <p>{q.explanation}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </section>
+        </>
+      )}
     </div>
   );
 }
-
-
-/* ============================= */
-/* STYLES */
-/* ============================= */
-
-const styles = {
-
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#f1f5f9",
-    padding: "30px",
-    fontFamily: "Arial, sans-serif",
-    boxSizing: "border-box",
-    color: "#111827",
-  },
-
-  header: {
-    maxWidth: "950px",
-    margin: "0 auto 25px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "15px",
-  },
-
-  mainTitle: {
-    margin: 0,
-    color: "#111827",
-    fontSize: "30px",
-  },
-
-  backButton: {
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    padding: "11px 18px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: "bold",
-  },
-
-  card: {
-    maxWidth: "950px",
-    margin: "0 auto",
-    backgroundColor: "#ffffff",
-    padding: "35px",
-    borderRadius: "16px",
-    boxShadow: "0 5px 20px rgba(0,0,0,0.08)",
-    boxSizing: "border-box",
-  },
-
-  heading: {
-    marginTop: 0,
-    color: "#111827",
-  },
-
-  description: {
-    color: "#4b5563",
-    lineHeight: "1.6",
-    fontSize: "16px",
-  },
-
-  label: {
-    display: "block",
-    marginTop: "20px",
-    marginBottom: "8px",
-    fontWeight: "bold",
-    color: "#111827",
-  },
-
-  input: {
-    width: "100%",
-    padding: "13px",
-    borderRadius: "8px",
-    border: "1px solid #cbd5e1",
-    fontSize: "16px",
-    backgroundColor: "#ffffff",
-    color: "#111827",
-    boxSizing: "border-box",
-  },
-
-  generateButton: {
-    width: "100%",
-    marginTop: "25px",
-    padding: "15px",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "16px",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-
-  quizContainer: {
-    maxWidth: "950px",
-    margin: "30px auto",
-  },
-
-  quizHeader: {
-    backgroundColor: "#ffffff",
-    padding: "25px",
-    borderRadius: "12px",
-    marginBottom: "20px",
-    boxShadow: "0 3px 12px rgba(0,0,0,0.06)",
-  },
-
-  quizTitle: {
-    margin: 0,
-    color: "#111827",
-  },
-
-  moduleText: {
-    color: "#64748b",
-    marginBottom: 0,
-  },
-
-  questionCard: {
-    backgroundColor: "#ffffff",
-    padding: "25px",
-    marginBottom: "20px",
-    borderRadius: "12px",
-    boxShadow: "0 3px 12px rgba(0,0,0,0.06)",
-    border: "1px solid #e2e8f0",
-  },
-
-  question: {
-    color: "#111827",
-    lineHeight: "1.6",
-    marginTop: 0,
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "12px",
-  },
-
-  questionNumber: {
-    minWidth: "32px",
-    height: "32px",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    borderRadius: "50%",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "14px",
-    flexShrink: 0,
-  },
-
-  optionsContainer: {
-    marginTop: "20px",
-  },
-
-  option: {
-    display: "flex",
-    alignItems: "center",
-    width: "100%",
-    minHeight: "55px",
-    padding: "12px 15px",
-    marginTop: "10px",
-    textAlign: "left",
-    backgroundColor: "#ffffff",
-    color: "#111827",
-    border: "2px solid #cbd5e1",
-    borderRadius: "10px",
-    cursor: "pointer",
-    fontSize: "16px",
-    lineHeight: "1.4",
-    boxSizing: "border-box",
-  },
-
-  optionLetter: {
-    width: "32px",
-    height: "32px",
-    minWidth: "32px",
-    backgroundColor: "#e2e8f0",
-    color: "#111827",
-    borderRadius: "50%",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: "bold",
-    marginRight: "12px",
-  },
-
-  optionText: {
-    color: "#111827",
-    flex: 1,
-  },
-
-  resultIcon: {
-    fontSize: "22px",
-    marginLeft: "10px",
-    fontWeight: "bold",
-  },
-
-  submitButton: {
-    width: "100%",
-    padding: "16px",
-    backgroundColor: "#16a34a",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "10px",
-    fontSize: "17px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    marginBottom: "30px",
-  },
-
-  scoreCard: {
-    maxWidth: "950px",
-    margin: "30px auto",
-    padding: "35px",
-    textAlign: "center",
-    backgroundColor: "#ffffff",
-    borderRadius: "15px",
-    boxShadow: "0 5px 20px rgba(0,0,0,0.08)",
-    border: "1px solid #e2e8f0",
-  },
-
-  scoreIcon: {
-    fontSize: "50px",
-  },
-
-  scoreTitle: {
-    color: "#111827",
-  },
-
-  scoreNumber: {
-    fontSize: "48px",
-    fontWeight: "bold",
-    color: "#2563eb",
-    margin: "15px 0",
-  },
-
-  scoreMessage: {
-    color: "#4b5563",
-    fontSize: "18px",
-  },
-
-  retryButton: {
-    padding: "12px 25px",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "16px",
-    fontWeight: "bold",
-  },
-};
 
 export default Quiz;

@@ -1,47 +1,229 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import "./Login.css";
 
+// =====================================================
+// SETTINGS
+// =====================================================
+
+const API_URL = "http://localhost:5000/api/auth/login";
+
+const MAX_ATTEMPTS = 5;
+const LOCK_SECONDS = 30;
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Common typing mistakes in email domains
+const DOMAIN_FIXES = {
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gmaill.com": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmail.con": "gmail.com",
+  "yaho.com": "yahoo.com",
+  "yahho.com": "yahoo.com",
+  "yahoo.con": "yahoo.com",
+  "hotmial.com": "hotmail.com",
+  "hotmail.con": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "outlook.con": "outlook.com",
+};
+
+function suggestEmail(email) {
+  const parts = email.trim().split("@");
+
+  if (parts.length !== 2) return "";
+
+  const fixedDomain = DOMAIN_FIXES[parts[1].toLowerCase()];
+
+  return fixedDomain ? `${parts[0]}@${fixedDomain}` : "";
+}
+
+// localStorage can fail in private windows, so every use is wrapped.
+function safeGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+function safeRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+function readLock() {
+  try {
+    const saved = JSON.parse(safeGet("loginLock") || "{}");
+
+    return {
+      attempts: Number(saved.attempts) || 0,
+      lockedUntil: Number(saved.lockedUntil) || 0,
+    };
+  } catch {
+    return { attempts: 0, lockedUntil: 0 };
+  }
+}
+
+// =====================================================
+// COMPONENT
+// =====================================================
+
 function Login() {
   const navigate = useNavigate();
 
-  const [formData, setFormData] = useState({
-    email: "",
+  const [formData, setFormData] = useState(() => ({
+    email: safeGet("rememberedEmail") || "",
     password: "",
-  });
+  }));
+
+  const [rememberEmail, setRememberEmail] = useState(() =>
+    Boolean(safeGet("rememberedEmail"))
+  );
 
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState("");
+  const [errorKey, setErrorKey] = useState(0);
+  const [info, setInfo] = useState("");
+
+  const [capsLock, setCapsLock] = useState(false);
+  const [emailHint, setEmailHint] = useState("");
+
+  const [lock, setLock] = useState(readLock);
+  const [now, setNow] = useState(() => Date.now());
+
+  // -----------------------------------------------
+  // LOCKOUT AFTER TOO MANY FAILED LOGINS
+  // -----------------------------------------------
+
+  const secondsLeft = Math.max(
+    0,
+    Math.ceil((lock.lockedUntil - now) / 1000)
+  );
+
+  const isLocked = secondsLeft > 0;
+
+  const saveLock = (nextLock) => {
+    setLock(nextLock);
+    safeSet("loginLock", JSON.stringify(nextLock));
+  };
+
+  // Tick every half second while locked
+  useEffect(() => {
+    if (!isLocked) return undefined;
+
+    const timer = setInterval(() => setNow(Date.now()), 500);
+
+    return () => clearInterval(timer);
+  }, [isLocked]);
+
+  // Unlock and reset the counter when the time is over
+    // Unlock and reset the counter when the time is over
+  useEffect(() => {
+    if (lock.lockedUntil && now >= lock.lockedUntil) {
+      const freshLock = { attempts: 0, lockedUntil: 0 };
+
+      setLock(freshLock);
+      safeSet("loginLock", JSON.stringify(freshLock));
+    }
+  }, [now, lock.lockedUntil]);
+
+  // -----------------------------------------------
+  // HELPERS
+  // -----------------------------------------------
+
+  // The key changes each time so the shake animation replays
+  const showError = (message) => {
+    setInfo("");
+    setError(message);
+    setErrorKey((key) => key + 1);
+  };
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
 
     setError("");
+    setInfo("");
+
+    if (name === "email") {
+      setEmailHint("");
+    }
   };
+
+  const handleEmailBlur = () => {
+    setEmailHint(suggestEmail(formData.email));
+  };
+
+  const applyEmailHint = () => {
+    setFormData((previous) => ({ ...previous, email: emailHint }));
+    setEmailHint("");
+  };
+
+  const handlePasswordKey = (e) => {
+    if (e.getModifierState) {
+      setCapsLock(e.getModifierState("CapsLock"));
+    }
+  };
+
+  // -----------------------------------------------
+  // LOGIN
+  // -----------------------------------------------
 
   const handleLogin = async (e) => {
     e.preventDefault();
 
-    if (!formData.email || !formData.password) {
-      setError("Please enter your email and password.");
+    if (loading) return;
+
+    if (isLocked) {
+      showError(
+        `Too many failed attempts. Please wait ${secondsLeft} seconds.`
+      );
+      return;
+    }
+
+    const email = formData.email.trim();
+
+    if (!email || !formData.password) {
+      showError("Please enter your email and password.");
+      return;
+    }
+
+    if (!EMAIL_PATTERN.test(email)) {
+      showError("Please enter a valid email address.");
       return;
     }
 
     try {
       setLoading(true);
       setError("");
+      setInfo("");
 
       const response = await axios.post(
-        "http://localhost:5000/api/auth/login",
-        formData
+        API_URL,
+        { email, password: formData.password },
+        { timeout: 15000 }
       );
-
-      console.log("Login successful:", response.data);
 
       if (response.data.token) {
         localStorage.setItem("token", response.data.token);
@@ -54,18 +236,73 @@ function Login() {
         );
       }
 
+      // Remember the email only (never the password)
+      if (rememberEmail) {
+        safeSet("rememberedEmail", email);
+      } else {
+        safeRemove("rememberedEmail");
+      }
+
+      saveLock({ attempts: 0, lockedUntil: 0 });
+
       navigate("/dashboard");
     } catch (err) {
-      console.error("Login error:", err);
+      const status = err.response?.status;
 
-      setError(
-        err.response?.data?.message ||
-          "Invalid email or password."
-      );
+      let message;
+      let countsAsFailure = false;
+
+      if (status === 429) {
+        message =
+          err.response?.data?.message ||
+          "Too many requests. Please wait a minute and try again.";
+      } else if (err.response) {
+        message =
+          err.response?.data?.message ||
+          "Invalid email or password.";
+
+        countsAsFailure = [400, 401, 403].includes(status);
+      } else if (err.code === "ECONNABORTED") {
+        message =
+          "The server took too long to respond. Please try again.";
+      } else {
+        message =
+          "Cannot connect to the server. Make sure the backend is running.";
+      }
+
+      if (countsAsFailure) {
+               const lockExpired =
+          lock.lockedUntil > 0 && Date.now() >= lock.lockedUntil;
+
+        const attempts = (lockExpired ? 0 : lock.attempts) + 1;
+
+        if (attempts >= MAX_ATTEMPTS) {
+          saveLock({
+            attempts,
+            lockedUntil: Date.now() + LOCK_SECONDS * 1000,
+          });
+
+          setNow(Date.now());
+
+          message = `Too many failed attempts. Please wait ${LOCK_SECONDS} seconds.`;
+        } else {
+          saveLock({ attempts, lockedUntil: 0 });
+
+          if (attempts >= 3) {
+            message += ` (${MAX_ATTEMPTS - attempts} attempts left)`;
+          }
+        }
+      }
+
+      showError(message);
     } finally {
       setLoading(false);
     }
   };
+
+  // -----------------------------------------------
+  // PAGE
+  // -----------------------------------------------
 
   return (
     <div className="modern-login">
@@ -198,28 +435,46 @@ function Login() {
             </p>
 
 
-            <form onSubmit={handleLogin}>
+            <form onSubmit={handleLogin} noValidate>
 
               {/* EMAIL */}
 
               <div className="field">
 
-                <label>Email address</label>
+                <label htmlFor="login-email">
+                  Email address
+                </label>
 
                 <div className="field-box">
 
                   <span>✉</span>
 
                   <input
+                    id="login-email"
                     type="email"
                     name="email"
                     placeholder="you@example.com"
                     value={formData.email}
                     onChange={handleChange}
+                    onBlur={handleEmailBlur}
                     autoComplete="email"
+                    disabled={loading}
                   />
 
                 </div>
+
+                {emailHint && (
+                  <div className="field-hint">
+                    Did you mean{" "}
+                    <button
+                      type="button"
+                      onClick={applyEmailHint}
+                    >
+                      {emailHint}
+                    </button>
+                    ?
+                  </div>
+                )}
 
               </div>
 
@@ -230,13 +485,15 @@ function Login() {
 
                 <div className="password-header">
 
-                  <label>Password</label>
+                  <label htmlFor="login-password">
+                    Password
+                  </label>
 
                   <button
                     type="button"
                     onClick={() =>
-                      alert(
-                        "Password reset feature coming soon."
+                      setInfo(
+                        "Password reset by email is not available yet."
                       )
                     }
                   >
@@ -248,9 +505,10 @@ function Login() {
 
                 <div className="field-box">
 
-                  <span>⌕</span>
+                  <span>🔒</span>
 
                   <input
+                    id="login-password"
                     type={
                       showPassword
                         ? "text"
@@ -260,7 +518,11 @@ function Login() {
                     placeholder="Enter your password"
                     value={formData.password}
                     onChange={handleChange}
+                    onKeyDown={handlePasswordKey}
+                    onKeyUp={handlePasswordKey}
+                    onBlur={() => setCapsLock(false)}
                     autoComplete="current-password"
+                    disabled={loading}
                   />
 
                   <button
@@ -269,21 +531,58 @@ function Login() {
                     onClick={() =>
                       setShowPassword(!showPassword)
                     }
+                    aria-label={
+                      showPassword
+                        ? "Hide password"
+                        : "Show password"
+                    }
                   >
                     {showPassword ? "🙈" : "👁"}
                   </button>
 
                 </div>
 
+                {capsLock && (
+                  <div className="caps-warning">
+                    ⚠ Caps Lock is on
+                  </div>
+                )}
+
               </div>
 
 
-              {/* ERROR */}
+              {/* REMEMBER EMAIL */}
+
+              <label className="remember-row">
+                <input
+                  type="checkbox"
+                  checked={rememberEmail}
+                  onChange={(e) =>
+                    setRememberEmail(e.target.checked)
+                  }
+                />
+
+                <span>Remember my email</span>
+              </label>
+
+
+              {/* MESSAGES */}
 
               {error && (
-                <div className="error-message">
+                <div
+                  key={errorKey}
+                  className="error-message"
+                  role="alert"
+                >
                   <span>!</span>
                   {error}
+                </div>
+              )}
+
+              {info && !error && (
+                <div className="info-message" role="status">
+                  <span>i</span>
+                  {info}
                 </div>
               )}
 
@@ -293,16 +592,20 @@ function Login() {
               <button
                 type="submit"
                 className="signin-btn"
-                disabled={loading}
+                disabled={loading || isLocked}
               >
+
+                {loading && <span className="btn-spinner"></span>}
 
                 <span>
                   {loading
                     ? "Authenticating..."
+                    : isLocked
+                    ? `Locked · try again in ${secondsLeft}s`
                     : "Sign in"}
                 </span>
 
-                {!loading && (
+                {!loading && !isLocked && (
                   <span className="btn-arrow">
                     →
                   </span>
@@ -331,6 +634,7 @@ function Login() {
               </p>
 
               <button
+                type="button"
                 onClick={() =>
                   navigate("/register")
                 }

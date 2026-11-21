@@ -1,34 +1,39 @@
-const express = require("express");
-const cors = require("cors");
+import axios from "axios";
 
-const authRoutes = require("./routes/authRoutes");
-const userRoutes = require("./routes/userRoutes");
-const pdfRoutes = require("./routes/pdfRoutes");
-const aiRoutes = require("./routes/aiRoutes");
-
-const app = express();
-
-app.use(cors());
-
-app.use(express.json());
-
-app.use(express.urlencoded({ extended: true }));
-
-// Test route
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "AI Study Assistant Backend Running",
-  });
+const API = axios.create({
+  baseURL: "http://localhost:5000/api",
 });
 
-// Routes
-app.use("/api/auth", authRoutes);
+API.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("token");
 
-app.use("/api/user", userRoutes);
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
 
-app.use("/api/pdf", pdfRoutes);
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-app.use("/api/ai", aiRoutes);
+// If the server says the login is missing or expired, go back to login.
+const onUnauthorized = (error) => {
+  const status = error.response?.status;
+  const onAuthPage = ["/login", "/register"].includes(window.location.pathname);
 
-module.exports = app;
+  if (status === 401 && !onAuthPage && localStorage.getItem("token")) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+  }
+
+  return Promise.reject(error);
+};
+
+API.interceptors.response.use((response) => response, onUnauthorized);
+
+// Pages that use plain axios (Upload Notes, Previous Papers, Saved) get the same protection.
+axios.interceptors.response.use((response) => response, onUnauthorized);
+
+export default API;

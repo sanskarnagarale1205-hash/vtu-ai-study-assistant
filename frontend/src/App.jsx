@@ -5,168 +5,44 @@ import {
   Navigate,
 } from "react-router-dom";
 
-// =====================================================
-// AUTH PAGES
-// =====================================================
+import AppLayout from "./AppLayout";
 
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-
-// =====================================================
-// DASHBOARD
-// =====================================================
-
 import Dashboard from "./pages/Dashboard";
-
-// =====================================================
-// AI TOOLS
-// =====================================================
-
 import UploadNotes from "./pages/UploadNotes";
 import AIChat from "./pages/AIChat";
 import ImportantQuestions from "./pages/ImportantQuestions";
 import Quiz from "./pages/Quiz";
 import PreviousPaper from "./pages/PreviousPaper";
 import SavedAnalyses from "./pages/SavedAnalyses";
-
-// =====================================================
-// APP
-// =====================================================
+import StudyPlan from "./pages/StudyPlan";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Default page */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
 
-        {/* =================================================
-            DEFAULT PAGE
-        ================================================= */}
+        {/* Public pages */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
-        <Route
-          path="/"
-          element={
-            <Navigate
-              to="/login"
-              replace
-            />
-          }
-        />
+        {/* Logged-in pages share the sidebar layout */}
+        <Route element={<AppLayout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/upload-notes" element={<UploadNotes />} />
+          <Route path="/ai-chat" element={<AIChat />} />
+          <Route path="/important-questions" element={<ImportantQuestions />} />
+          <Route path="/quiz" element={<Quiz />} />
+          <Route path="/previous-paper" element={<PreviousPaper />} />
+          <Route path="/saved-analyses" element={<SavedAnalyses />} />
+          <Route path="/study-plan" element={<StudyPlan />} />
+        </Route>
 
-        {/* =================================================
-            AUTH
-        ================================================= */}
-
-        <Route
-          path="/login"
-          element={
-            <Login />
-          }
-        />
-
-        <Route
-          path="/register"
-          element={
-            <Register />
-          }
-        />
-
-        {/* =================================================
-            DASHBOARD
-        ================================================= */}
-
-        <Route
-          path="/dashboard"
-          element={
-            <Dashboard />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 1
-            UPLOAD NOTES
-        ================================================= */}
-
-        <Route
-          path="/upload-notes"
-          element={
-            <UploadNotes />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 2
-            AI CHAT
-        ================================================= */}
-
-        <Route
-          path="/ai-chat"
-          element={
-            <AIChat />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 3
-            IMPORTANT QUESTIONS
-        ================================================= */}
-
-        <Route
-          path="/important-questions"
-          element={
-            <ImportantQuestions />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 4
-            QUIZ
-        ================================================= */}
-
-        <Route
-          path="/quiz"
-          element={
-            <Quiz />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 5
-            PREVIOUS YEAR PAPER
-        ================================================= */}
-
-        <Route
-          path="/previous-paper"
-          element={
-            <PreviousPaper />
-          }
-        />
-
-        {/* =================================================
-            AI TOOL 6
-            SAVED ANALYSES
-        ================================================= */}
-
-        <Route
-          path="/saved-analyses"
-          element={
-            <SavedAnalyses />
-          }
-        />
-
-        {/* =================================================
-            UNKNOWN ROUTE
-        ================================================= */}
-
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to="/dashboard"
-              replace
-            />
-          }
-        />
-
+        {/* Unknown page */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
   );

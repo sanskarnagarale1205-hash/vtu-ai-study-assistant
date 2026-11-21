@@ -1,0 +1,165 @@
+/* =========================================================
+   THEME SYSTEM: Indigo (default), Dark, Emerald, Ocean
+   Every page should use these variables instead of fixed colours.
+========================================================= */
+
+:root,
+:root[data-theme="indigo"] {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-2: #334155;
+  --muted: #64748b;
+
+  --p: #4f46e5;
+  --p-dark: #4338ca;
+  --p2: #7c3aed;
+  --p-soft: #eef2ff;
+  --p-soft-2: #e0e7ff;
+  --p-text: #4338ca;
+  --p-border: #a5b4fc;
+
+  --grad: linear-gradient(135deg, #4f46e5, #7c3aed);
+  --grad-hero: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
+  --done-bg: #f0fdf4;
+  --shadow: rgba(15, 23, 42, 0.45);
+}
+
+:root[data-theme="emerald"] {
+  --bg: #f0fdf9;
+  --p: #059669;
+  --p-dark: #047857;
+  --p2: #0d9488;
+  --p-soft: #ecfdf5;
+  --p-soft-2: #d1fae5;
+  --p-text: #047857;
+  --p-border: #6ee7b7;
+  --grad: linear-gradient(135deg, #059669, #0d9488);
+  --grad-hero: linear-gradient(135deg, #047857 0%, #0d9488 100%);
+}
+
+:root[data-theme="ocean"] {
+  --bg: #f0f7ff;
+  --p: #2563eb;
+  --p-dark: #1d4ed8;
+  --p2: #0891b2;
+  --p-soft: #eff6ff;
+  --p-soft-2: #dbeafe;
+  --p-text: #1d4ed8;
+  --p-border: #93c5fd;
+  --grad: linear-gradient(135deg, #2563eb, #0891b2);
+  --grad-hero: linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b1020;
+  --surface: #131a2e;
+  --surface-2: #1a2340;
+  --border: #2a3558;
+  --text: #e8ecf8;
+  --text-2: #c3cbe3;
+  --muted: #8b96b8;
+
+  --p: #818cf8;
+  --p-dark: #6366f1;
+  --p2: #a78bfa;
+  --p-soft: rgba(129, 140, 248, 0.14);
+  --p-soft-2: rgba(129, 140, 248, 0.24);
+  --p-text: #c7d2fe;
+  --p-border: #4f5bd5;
+
+  --grad: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --grad-hero: linear-gradient(135deg, #312e81 0%, #5b21b6 100%);
+  --done-bg: rgba(22, 163, 74, 0.14);
+  --shadow: rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- base ---------- */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.3s, color 0.3s;
+}
+
+/* =========================================================
+   APPLY THE THEME TO THE PAGES ALREADY RESTYLED
+   (Previous Paper analyzer and Saved Analyses)
+========================================================= */
+
+/* surfaces */
+.pp-card, .pp-file-item, .pp-item, .pp-input, .pp-secondary-button,
+.pp-chip:not(.pp-chip-active), .pp-study,
+.sa-card, .sa-stat, .sa-modal, .sa-confirm, .sa-empty,
+.sa-search, .sa-select, .sa-copy, .sa-item, .sa-danger-outline {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.pp-file-summary, .pp-qcard, .pp-footer-note,
+.sa-files, .sa-qcard {
+  background: var(--surface-2);
+  border-top-color: var(--border);
+  border-right-color: var(--border);
+  border-bottom-color: var(--border);
+}
+
+.pp-qcard-done { background: var(--done-bg); }
+.pp-divider { background: var(--border); }
+.sa-modal-head, .sa-modal-foot { border-color: var(--border); }
+.pp-sec-head, .sa-sec-head { border-bottom-color: var(--p-soft-2); }
+
+/* soft accent areas */
+.pp-count, .pp-stat, .pp-progress-card, .pp-loading, .pp-dropzone,
+.pp-item-number, .pp-sec-count, .pp-chip-soft,
+.sa-badge, .sa-item-num, .sa-subject-icon {
+  background: var(--p-soft);
+  color: var(--p-text);
+}
+
+.pp-dropzone { border-color: var(--p-border); }
+.pp-dropzone:hover, .pp-dropzone-active { background: var(--p-soft-2); border-color: var(--p); }
+.pp-stat strong, .pp-results-heading .pp-eyebrow { color: var(--p-text); }
+
+/* gradients and accent buttons */
+.pp-hero, .sa-hero { background: var(--grad-hero); }
+.pp-primary-button, .pp-sec-num, .pp-progress-bar,
+.sa-view, .sa-num { background: var(--grad); }
+.pp-browse-button, .pp-chip-active, .pp-chip-active:hover { background: var(--p); border-color: var(--p); color: #ffffff; }
+.pp-dot, .sa-dot { background: var(--p); }
+.pp-spinner { border-color: var(--p-soft-2); border-top-color: var(--p); }
+.pp-progress { background: var(--p-soft-2); }
+.pp-input:focus, .sa-search:focus, .sa-select:focus { border-color: var(--p); }
+.pp-secondary-button, .sa-copy, .pp-chip { color: var(--p-text); }
+.pp-secondary-button:hover, .sa-copy:hover { background: var(--p-soft); }
+
+/* text colours */
+.pp-card h2, .pp-dropzone h3, .pp-qcard-title, .pp-sec-head h3,
+.pp-file-details strong, .pp-file-summary strong, .pp-input,
+.sa-card-title h2, .sa-modal-head h2, .sa-confirm h2, .sa-qcard h4,
+.sa-sec-head h3, .sa-search, .sa-select, .sa-empty h2 {
+  color: var(--text);
+}
+
+.pp-label, .pp-row-value, .pp-item, .pp-study,
+.sa-row-value, .sa-item, .sa-raw {
+  color: var(--text-2);
+}
+
+.pp-help, .pp-dropzone p, .pp-file-details span, .pp-file-summary p,
+.pp-row-label, .pp-stat span, .pp-empty, .pp-footer-note, .pp-chev,
+.sa-card-title p, .sa-files li, .sa-stat span, .sa-modal-head p,
+.sa-row-label, .sa-confirm p, .sa-empty p {
+  color: var(--muted);
+}
+
+.sa-stat strong, .sa-more { color: var(--p-text); }
+
+/* =========================================================
+   Page background wrappers
+========================================================= */
+.pp-page, .sa-page { color: var(--text); }
