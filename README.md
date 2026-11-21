@@ -32,4 +32,4 @@ React + Vite, Node.js, Express, MongoDB (Mongoose), JWT authentication, Google G
 
 ## Author
 
-Sanskar Nagarale, CSE, SKIT Nipani
+Sanskar Nagarale, CSE, SRKIT Nipani
